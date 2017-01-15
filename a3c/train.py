@@ -152,12 +152,7 @@ def learn_proc(mem_queue, weight_dict):
     checkpoint = args.checkpoint
     steps = args.steps
     # -----
-    env = gym.make(args.game)
-    #['NOOP', 'FIRE', 'RIGHT', 'LEFT', 'RIGHTFIRE', 'LEFTFIRE'] - default
-    #['NOOP', 'FIRE', 'RIGHT', 'LEFT'] - our workaround
-    if args.game == 'Breakout-v0' or args.game == 'SpaceInvaders-v0':
-        action_space = Discrete(4)
-    agent = LearningAgent(action_space, batch_size=args.batch_size, swap_freq=args.swap_freq)
+    agent = LearningAgent(env.action_space, batch_size=args.batch_size, swap_freq=args.swap_freq)
     # -----
     if checkpoint > 0:
         print(' %5d> Loading weights from file' % (pid,))
@@ -270,12 +265,7 @@ def generate_experience_proc(mem_queue, weight_dict, no):
     batch_size = args.batch_size
     # -----
     env = gym.make(args.game)
-    #['NOOP', 'FIRE', 'RIGHT', 'LEFT', 'RIGHTFIRE', 'LEFTFIRE'] - default
-    #['NOOP', 'FIRE', 'RIGHT', 'LEFT'] - our workaround
-    #this work around does not mess with the internals of ALE and will work with any compilation of ALE
-    if args.game == 'Breakout-v0' or args.game == 'SpaceInvaders-v0':
-        action_space = Discrete(4)
-    agent = LearningAgent(action_space, batch_size=args.batch_size, swap_freq=args.swap_freq)
+    agent = ActingAgent(env.action_space, n_step=args.n_step)
     # -----
     if frames > 0:
         print(' %5d> Loaded weights from file' % (pid,))
