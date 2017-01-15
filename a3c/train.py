@@ -152,6 +152,7 @@ def learn_proc(mem_queue, weight_dict):
     checkpoint = args.checkpoint
     steps = args.steps
     # -----
+    env = gym.make(args.game)
     agent = LearningAgent(env.action_space, batch_size=args.batch_size, swap_freq=args.swap_freq)
     # -----
     if checkpoint > 0:
