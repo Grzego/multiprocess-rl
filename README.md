@@ -14,6 +14,7 @@ There are many processes (tested with 4, it should work better with more in case
 * [Keras](http://keras.io/)
 * [Theano](http://deeplearning.net/software/theano/) ([Tensorflow](https://www.tensorflow.org/) would probably work too)
 * [OpenAI (atari-py)](https://gym.openai.com/)
+* `pip install scikit-image h5py`
 
 ### Sample game (A3C)
 ![](https://github.com/Grzego/async-rl/blob/master/a3c/resources/sample-game.gif?raw=true)
