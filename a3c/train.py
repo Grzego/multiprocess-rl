@@ -1,3 +1,5 @@
+from __future__ import print_function
+from __future__ import division
 from scipy.misc import imresize
 from skimage.color import rgb2gray
 from multiprocessing import *
@@ -265,7 +267,7 @@ def generate_experience_proc(mem_queue, weight_dict, no):
     # -----
     env = gym.make(args.game)
     agent = ActingAgent(env.action_space, n_step=args.n_step)
-
+    # -----
     if frames > 0:
         print(' %5d> Loaded weights from file' % (pid,))
         agent.load_net.load_weights('model-%s-%d.h5' % (args.game, frames))
