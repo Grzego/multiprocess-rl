@@ -77,7 +77,7 @@ def value_loss():
 
 class LearningAgent(object):
     def __init__(self, action_space, batch_size=32, screen=(84, 84), swap_freq=200):
-        from keras.optimizers import RMSprop		
+        from keras.optimizers import RMSprop
         # -----
         self.screen = screen
         self.input_depth = 1
@@ -139,7 +139,7 @@ class LearningAgent(object):
 def learn_proc(mem_queue, weight_dict):
     import os
     pid = os.getpid()
-    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=gpu,nvcc.fastmath=False,lib.cnmem=0.3,' + \
+    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,nvcc.fastmath=False,lib.cnmem=0.3,' + \
                                  'compiledir=th_comp_learn'
     # -----
     print(' %5d> Learning process' % (pid,))
@@ -255,7 +255,7 @@ class ActingAgent(object):
 def generate_experience_proc(mem_queue, weight_dict, no):
     import os
     pid = os.getpid()
-    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=gpu,nvcc.fastmath=True,lib.cnmem=0,' + \
+    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,nvcc.fastmath=True,lib.cnmem=0,' + \
                                  'compiledir=th_comp_act_' + str(no)
     # -----
     print(' %5d> Process started' % (pid,))
