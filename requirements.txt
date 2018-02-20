@@ -1,0 +1,6 @@
+theano
+gym[atari]
+scikit-image
+Keras
+h5py
+scipy
