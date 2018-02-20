@@ -7,6 +7,18 @@ import numpy as np
 import h5py
 import argparse
 
+import traceback, functools, multiprocessing
+
+def trace_unhandled_exceptions(func):
+    @functools.wraps(func)
+    def wrapped_func(*args, **kwargs):
+        try:
+            func(*args, **kwargs)
+        except:
+            print('Exception in '+func.__name__)
+            traceback.print_exc()
+    return wrapped_func
+
 # -----
 parser = argparse.ArgumentParser(description='Training model')
 parser.add_argument('--game', default='Breakout-v0', help='OpenAI gym environment name', dest='game', type=str)
@@ -136,11 +148,11 @@ class LearningAgent(object):
         return False
 
 
+@trace_unhandled_exceptions
 def learn_proc(mem_queue, weight_dict):
     import os
     pid = os.getpid()
-    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,nvcc.fastmath=False,lib.cnmem=0.3,' + \
-                                 'compiledir=th_comp_learn'
+    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_learn'
     # -----
     print(' %5d> Learning process' % (pid,))
     # -----
@@ -252,11 +264,11 @@ class ActingAgent(object):
         return rgb2gray(imresize(data, self.screen))[None, ...]
 
 
+@trace_unhandled_exceptions
 def generate_experience_proc(mem_queue, weight_dict, no):
     import os
     pid = os.getpid()
-    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,nvcc.fastmath=True,lib.cnmem=0,' + \
-                                 'compiledir=th_comp_act_' + str(no)
+    os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_act_' + str(no)
     # -----
     print(' %5d> Process started' % (pid,))
     # -----

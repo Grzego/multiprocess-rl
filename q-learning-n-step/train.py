@@ -295,10 +295,14 @@ def main():
 
     try:
         for i in range(args.processes):
-            pool.apply_async(generate_experience_proc,
+            p = pool.apply_async(generate_experience_proc,
                              args=(global_frame, mem_queue, weight_dict, i, eps[i % len(eps)]))
+            # Get an eventual exception
+            p.get()
 
-        pool.apply_async(learn_proc, args=(global_frame, mem_queue, weight_dict))
+        p = pool.apply_async(learn_proc, args=(global_frame, mem_queue, weight_dict))
+        # Get an eventual exception
+        p.get()
 
         pool.close()
         pool.join()
