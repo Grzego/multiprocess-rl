@@ -1,6 +1,9 @@
 # A Dockerfile that sets up a full Gym install
 FROM ubuntu:16.04
 
+# Otherwise when on AWS it asks for a keyboard layout and hangs
+# See https://github.com/phusion/baseimage-docker/issues/342
+ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update
 RUN apt-get install -y software-properties-common vim
 RUN add-apt-repository ppa:jonathonf/python-3.6 \
