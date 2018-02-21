@@ -60,17 +60,17 @@ def build_network(input_shape, output_shape):
     value_network = Model(inputs=state, outputs=value)
     policy_network = Model(inputs=state, outputs=policy)
 
-    adventage = Input(shape=(1,))
-    train_network = Model(inputs=[state, adventage], outputs=[value, policy])
+    advantage = Input(shape=(1,))
+    train_network = Model(inputs=[state, advantage], outputs=[value, policy])
 
-    return value_network, policy_network, train_network, adventage
+    return value_network, policy_network, train_network, advantage
 
 
-def policy_loss(adventage=0., beta=0.01):
+def policy_loss(advantage=0., beta=0.01):
     from keras import backend as K
 
     def loss(y_true, y_pred):
-        return -K.sum(K.log(K.sum(y_true * y_pred, axis=-1) + K.epsilon()) * K.flatten(adventage)) + \
+        return -K.sum(K.log(K.sum(y_true * y_pred, axis=-1) + K.epsilon()) * K.flatten(advantage)) + \
                beta * K.sum(y_pred * K.log(y_pred + K.epsilon()))
 
     return loss
@@ -97,10 +97,10 @@ class LearningAgent(object):
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
         self.batch_size = batch_size
 
-        _, _, self.train_net, adventage = build_network(self.observation_shape, action_space.n)
+        _, _, self.train_net, advantage = build_network(self.observation_shape, action_space.n)
 
         self.train_net.compile(optimizer=RMSprop(epsilon=0.1, rho=0.99),
-                               loss=[value_loss(), policy_loss(adventage, args.beta)])
+                               loss=[value_loss(), policy_loss(advantage, args.beta)])
 
         self.pol_loss = deque(maxlen=25)
         self.val_loss = deque(maxlen=25)
@@ -121,10 +121,10 @@ class LearningAgent(object):
         values, policy = self.train_net.predict([last_observations, self.unroll])
         # -----
         self.targets.fill(0.)
-        adventage = rewards - values.flatten()
+        advantage = rewards - values.flatten()
         self.targets[self.unroll, actions] = 1.
         # -----
-        loss = self.train_net.train_on_batch([last_observations, adventage], [rewards, self.targets])
+        loss = self.train_net.train_on_batch([last_observations, advantage], [rewards, self.targets])
         entropy = np.mean(-policy * np.log(policy + 0.00000001))
         self.pol_loss.append(loss[2])
         self.val_loss.append(loss[1])
@@ -149,7 +149,7 @@ class LearningAgent(object):
 
 
 @trace_unhandled_exceptions
-def learn_proc(mem_queue, weight_dict):
+def learn_proc(envs, mem_queue, weight_dict):
     import os
     pid = os.getpid()
     os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_learn'
@@ -180,22 +180,28 @@ def learn_proc(mem_queue, weight_dict):
     idx = 0
     agent.counter = checkpoint
     save_counter = checkpoint % save_freq + save_freq
-    while True:
-        # -----
-        last_obs[idx, ...], actions[idx], rewards[idx] = mem_queue.get()
-        idx = (idx + 1) % batch_size
-        if idx == 0:
-            lr = max(0.00000001, (steps - agent.counter) / steps * learning_rate)
-            updated = agent.learn(last_obs, actions, rewards, learning_rate=lr)
-            if updated:
-                # print(' %5d> Updating weights in dict' % (pid,))
-                weight_dict['weights'] = agent.train_net.get_weights()
-                weight_dict['update'] += 1
-        # -----
-        save_counter -= 1
-        if save_counter < 0:
-            save_counter += save_freq
-            agent.train_net.save_weights('model-%s-%d.h5' % (args.game, agent.counter,), overwrite=True)
+    try:
+        while True:
+            # -----
+            last_obs[idx, ...], actions[idx], rewards[idx] = mem_queue.get()
+            idx = (idx + 1) % batch_size
+            if idx == 0:
+                lr = max(0.00000001, (steps - agent.counter) / steps * learning_rate)
+                updated = agent.learn(last_obs, actions, rewards, learning_rate=lr)
+                if updated:
+                    # print(' %5d> Updating weights in dict' % (pid,))
+                    weight_dict['weights'] = agent.train_net.get_weights()
+                    weight_dict['update'] += 1
+            # -----
+            save_counter -= 1
+            if save_counter < 0:
+                save_counter += save_freq
+                agent.train_net.save_weights('model-%s-%d.h5' % (args.game, agent.counter,), overwrite=True)
+    except Exception as e:
+        print('Got exception ', e, ', closing')
+        for env in envs:
+            env.close()
+
 
 
 class ActingAgent(object):
@@ -234,8 +240,8 @@ class ActingAgent(object):
 
     def sars_data(self, action, reward, observation, terminal, mem_queue):
         self.save_observation(observation)
+        reward /= args.reward_scale
         reward = np.clip(reward, -1., 1.)
-        # reward /= args.reward_scale
         # -----
         self.n_step_observations.appendleft(self.last_observations)
         self.n_step_actions.appendleft(action)
@@ -265,7 +271,7 @@ class ActingAgent(object):
 
 
 @trace_unhandled_exceptions
-def generate_experience_proc(mem_queue, weight_dict, no):
+def generate_experience_proc(env, mem_queue, weight_dict, no):
     import os
     pid = os.getpid()
     os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_act_' + str(no)
@@ -275,7 +281,6 @@ def generate_experience_proc(mem_queue, weight_dict, no):
     frames = 0
     batch_size = args.batch_size
     # -----
-    env = gym.make(args.game)
     agent = ActingAgent(env.action_space, n_step=args.n_step)
 
     if frames > 0:
@@ -292,38 +297,42 @@ def generate_experience_proc(mem_queue, weight_dict, no):
     avg_score = deque([0], maxlen=25)
 
     last_update = 0
-    while True:
-        done = False
-        episode_reward = 0
-        op_last, op_count = 0, 0
-        observation = env.reset()
-        agent.init_episode(observation)
+    try:
+        while True:
+            done = False
+            episode_reward = 0
+            op_last, op_count = 0, 0
+            observation = env.reset()
+            agent.init_episode(observation)
 
-        # -----
-        while not done:
-            frames += 1
-            action = agent.choose_action()
-            observation, reward, done, _ = env.step(action)
-            episode_reward += reward
-            best_score = max(best_score, episode_reward)
             # -----
-            agent.sars_data(action, reward, observation, done, mem_queue)
+            while not done:
+                frames += 1
+                action = agent.choose_action()
+                observation, reward, done, _ = env.step(action)
+                episode_reward += reward
+                best_score = max(best_score, episode_reward)
+                # -----
+                agent.sars_data(action, reward, observation, done, mem_queue)
+                # -----
+                op_count = 0 if op_last != action else op_count + 1
+                done = done or op_count >= 100
+                op_last = action
+                # -----
+                if frames % 2000 == 0:
+                    print(' %5d> Best: %4d; Avg: %6.2f; Max: %4d' % (
+                        pid, best_score, np.mean(avg_score), np.max(avg_score)))
+                if frames % batch_size == 0:
+                    update = weight_dict.get('update', 0)
+                    if update > last_update:
+                        last_update = update
+                        # print(' %5d> Getting weights from dict' % (pid,))
+                        agent.load_net.set_weights(weight_dict['weights'])
             # -----
-            op_count = 0 if op_last != action else op_count + 1
-            done = done or op_count >= 100
-            op_last = action
-            # -----
-            if frames % 2000 == 0:
-                print(' %5d> Best: %4d; Avg: %6.2f; Max: %4d' % (
-                    pid, best_score, np.mean(avg_score), np.max(avg_score)))
-            if frames % batch_size == 0:
-                update = weight_dict.get('update', 0)
-                if update > last_update:
-                    last_update = update
-                    # print(' %5d> Getting weights from dict' % (pid,))
-                    agent.load_net.set_weights(weight_dict['weights'])
-        # -----
-        avg_score.append(episode_reward)
+            avg_score.append(episode_reward)
+    except Exception as e:
+        print('Got exception ', e, ', closing')
+        env.close()
 
 
 def init_worker():
@@ -332,17 +341,23 @@ def init_worker():
 
 
 def main():
+    if args.game.startswith('Super'):
+        import super_mario
+
     manager = Manager()
     weight_dict = manager.dict()
     mem_queue = manager.Queue(args.queue_size)
 
     pool = Pool(args.processes + 1, init_worker)
+    envs = []
 
     try:
         for i in range(args.processes):
-            pool.apply_async(generate_experience_proc, (mem_queue, weight_dict, i))
+            env = gym.make(args.game)
+            pool.apply_async(generate_experience_proc, (env, mem_queue, weight_dict, i))
+            envs.append(env)
 
-        pool.apply_async(learn_proc, (mem_queue, weight_dict))
+        pool.apply_async(learn_proc, (envs, mem_queue, weight_dict))
 
         pool.close()
         pool.join()
@@ -350,6 +365,8 @@ def main():
     except KeyboardInterrupt:
         pool.terminate()
         pool.join()
+    for env in envs:
+        env.close()
 
 
 if __name__ == "__main__":
