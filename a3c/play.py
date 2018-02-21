@@ -2,6 +2,7 @@ from keras.models import *
 from keras.layers import *
 from keras.optimizers import RMSprop
 import gym
+from gym.wrappers import Monitor
 from scipy.misc import imresize
 from skimage.color import rgb2gray
 import numpy as np
@@ -71,7 +72,7 @@ def main():
     # -----
     env = gym.make(args.game)
     if args.evaldir:
-        env.monitor.start(args.evaldir)
+        env = Monitor(env, args.evaldir, video_callable=lambda episode_id: True)
     # -----
     agent = ActingAgent(env.action_space)
 
@@ -80,7 +81,8 @@ def main():
     agent.load_net.load_weights(model_file)
 
     game = 1
-    for _ in range(10):
+    episode_rewards = []
+    for _ in range(20):
         done = False
         episode_reward = 0
         noops = 0
@@ -102,11 +104,10 @@ def main():
                 noops = 0
             if noops > 100:
                 break
+        episode_rewards.append(episode_reward)
         print('Reward %4d; ' % (episode_reward,))
         game += 1
-    # -----
-    if args.evaldir:
-        env.monitor.close()
+    env.close()
 
 
 if __name__ == "__main__":
