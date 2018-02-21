@@ -1,5 +1,6 @@
 theano
 gym[atari]
+git+https://github.com/sicara/gym-super-mario.git
 scikit-image
 Keras
 h5py

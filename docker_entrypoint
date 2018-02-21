@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# This script is the entrypoint for our Docker image.
+
+set -e
+
+[ -z "${MUJOCO_KEY_BUNDLE}" ] || ( mkdir -p ~/.mujoco && curl https://openai-public.s3-us-west-2.amazonaws.com/mujoco/$MUJOCO_KEY_BUNDLE.tar.gz | tar xz -C ~/.mujoco )
+
+Xvfb :12 -ac -screen 0 1280x1024x24 > /dev/null &
+export DISPLAY=:12
+export KERAS_BACKEND=theano
+
+exec "$@"
