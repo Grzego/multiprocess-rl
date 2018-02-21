@@ -82,7 +82,7 @@ def main():
 
     game = 1
     episode_rewards = []
-    for _ in range(20):
+    for _ in range(100):
         done = False
         episode_reward = 0
         noops = 0

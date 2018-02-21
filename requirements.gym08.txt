@@ -1,0 +1,6 @@
+theano
+gym==0.8.0
+scikit-image
+Keras
+h5py
+scipy
