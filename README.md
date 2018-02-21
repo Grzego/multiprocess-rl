@@ -49,3 +49,27 @@ Because I'm newbie in Reinforcement Learning and Deep Learning, feedback is very
 * [Asynchronous Methods for Deep Reinforcement Learning](http://arxiv.org/pdf/1602.01783v1.pdf)
 * [Playing Atari with Deep Reinforcement Learning](http://arxiv.org/pdf/1312.5602v1.pdf)
 
+### Docker
+
+On an Ubuntu 16 AMI from AWS, install docker with:
+
+```
+sudo apt-get update
+sudo apt-get install apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+sudo apt-get update
+sudo apt-get install docker-ce
+
+sudo usermod -aG docker $USER
+```
+
+Disconnect from the bash then reconnect.
+
+Then run training with:
+
+```
+screen
+docker build . -t worker
+docker run -v /home/ubuntu/async-rl:/leto.ai/async-rl worker python a3c/train.py --game="SuperMarioBros-1-1-v1" --processes=16 --reward_scale=10
+```

@@ -17,6 +17,7 @@ RUN add-apt-repository ppa:jonathonf/python-3.6 \
     libjpeg-dev \
     curl \
     cmake \
+    fceux \
     swig \
     freeglut3 \
     python-opengl \
