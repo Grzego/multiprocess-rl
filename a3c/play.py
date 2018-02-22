@@ -65,10 +65,13 @@ parser = argparse.ArgumentParser(description='Evaluation of model')
 parser.add_argument('--game', default='Breakout-v0', help='Name of openai gym environment', dest='game')
 parser.add_argument('--evaldir', default=None, help='Directory to save evaluation', dest='evaldir')
 parser.add_argument('--model', help='File with weights for model', dest='model')
+parser.add_argument('--n-tests', default=20, help='Number of tests to run', dest='n_tests')
 
 
 def main():
     args = parser.parse_args()
+    if args.game.startswith('Super'):
+        import super_mario
     # -----
     env = gym.make(args.game)
     if args.evaldir:
@@ -82,7 +85,7 @@ def main():
 
     game = 1
     episode_rewards = []
-    for _ in range(100):
+    for _ in range(args.n_tests):
         done = False
         episode_reward = 0
         noops = 0
