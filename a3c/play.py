@@ -102,6 +102,8 @@ def build_network(input_shape, output_shape):
     h = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first')(h)
     h = Flatten()(h)
     h = Dense(256, activation='relu')(h)
+    if add_lstm:
+        h = LSTM(256)(h)
 
     value = Dense(1, activation='linear')(h)
     policy = Dense(output_shape, activation='softmax')(h)
@@ -116,14 +118,14 @@ def build_network(input_shape, output_shape):
 
 
 class ActingAgent(object):
-    def __init__(self, action_space, screen=(84, 84)):
+    def __init__(self, action_space, screen=(84, 84), add_lstm=False):
         self.screen = screen
         self.input_depth = 1
         self.past_range = 3
         self.replay_size = 32
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
 
-        _, self.policy, self.load_net, _ = build_network(self.observation_shape, action_space.n)
+        _, self.policy, self.load_net, _ = build_network(self.observation_shape, action_space.n, add_lstm)
 
         self.load_net.compile(optimizer=RMSprop(clipnorm=1.), loss='mse')  # clipnorm=1.
 
@@ -153,6 +155,7 @@ parser.add_argument('--game', default='Breakout-v0', help='Name of openai gym en
 parser.add_argument('--evaldir', default=None, help='Directory to save evaluation', dest='evaldir')
 parser.add_argument('--model', help='File with weights for model', dest='model')
 parser.add_argument('--n-tests', type=int, default=20, help='Number of tests to run', dest='n_tests')
+parser.add_argument('--lstm', type=bool, default=False, help='Use a LSTM', dest='add_lstm')
 
 
 def main():
@@ -167,7 +170,7 @@ def main():
         else:
             env = Monitor(env, args.evaldir, video_callable=lambda episode_id: True)
     # -----
-    agent = ActingAgent(env.action_space)
+    agent = ActingAgent(env.action_space, args.add_lstm)
 
     model_file = args.model
 

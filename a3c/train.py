@@ -37,6 +37,7 @@ parser.add_argument('--queue_size', default=256, help='Size of queue holding age
 parser.add_argument('--n_step', default=5, help='Number of steps', dest='n_step', type=int)
 parser.add_argument('--reward_scale', default=1., dest='reward_scale', type=float)
 parser.add_argument('--beta', default=0.01, dest='beta', type=float)
+parser.add_argument('--lstm', type=bool, default=False, help='Use a LSTM', dest='add_lstm')
 # -----
 args = parser.parse_args()
 
@@ -44,15 +45,17 @@ args = parser.parse_args()
 # -----
 
 
-def build_network(input_shape, output_shape):
+def build_network(input_shape, output_shape, add_lstm=False):
     from keras.models import Model
-    from keras.layers import Input, Conv2D, Flatten, Dense
+    from keras.layers import Input, Conv2D, Flatten, Dense, LSTM
     # -----
     state = Input(shape=input_shape)
     h = Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first')(state)
     h = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first')(h)
     h = Flatten()(h)
     h = Dense(256, activation='relu')(h)
+    if add_lstm:
+        h = LSTM(256)(h)
 
     value = Dense(1, activation='linear', name='value')(h)
     policy = Dense(output_shape, activation='softmax', name='policy')(h)
@@ -88,7 +91,7 @@ def value_loss():
 # -----
 
 class LearningAgent(object):
-    def __init__(self, action_space, batch_size=32, screen=(84, 84), swap_freq=200):
+    def __init__(self, action_space, batch_size=32, screen=(84, 84), swap_freq=200, add_lstm=False):
         from keras.optimizers import RMSprop
         # -----
         self.screen = screen
@@ -97,7 +100,7 @@ class LearningAgent(object):
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
         self.batch_size = batch_size
 
-        _, _, self.train_net, advantage = build_network(self.observation_shape, action_space.n)
+        _, _, self.train_net, advantage = build_network(self.observation_shape, action_space.n, add_lstm=add_lstm)
 
         self.train_net.compile(optimizer=RMSprop(epsilon=0.1, rho=0.99),
                                loss=[value_loss(), policy_loss(advantage, args.beta)])
@@ -149,7 +152,7 @@ class LearningAgent(object):
 
 
 @trace_unhandled_exceptions
-def learn_proc(envs, mem_queue, weight_dict):
+def learn_proc(envs, mem_queue, weight_dict, add_lstm=False):
     import os
     pid = os.getpid()
     os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_learn'
@@ -163,7 +166,7 @@ def learn_proc(envs, mem_queue, weight_dict):
     steps = args.steps
     # -----
     env = gym.make(args.game)
-    agent = LearningAgent(env.action_space, batch_size=args.batch_size, swap_freq=args.swap_freq)
+    agent = LearningAgent(env.action_space, batch_size=args.batch_size, swap_freq=args.swap_freq, add_lstm=add_lstm)
     # -----
     if checkpoint > 0:
         print(' %5d> Loading weights from file' % (pid,))
@@ -357,7 +360,7 @@ def main():
             pool.apply_async(generate_experience_proc, (env, mem_queue, weight_dict, i))
             envs.append(env)
 
-        pool.apply_async(learn_proc, (envs, mem_queue, weight_dict))
+        pool.apply_async(learn_proc, (envs, mem_queue, weight_dict, args.add_lstm))
 
         pool.close()
         pool.join()
