@@ -47,18 +47,32 @@ args = parser.parse_args()
 
 def build_network(input_shape, output_shape, add_lstm=False):
     from keras.models import Model
-    from keras.layers import Input, Conv2D, Flatten, Dense, LSTM
+    from keras.layers import Input, Conv2D, Flatten, Dense, LSTM, TimeDistributed
     # -----
-    state = Input(shape=input_shape)
-    h = Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first')(state)
-    h = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first')(h)
-    h = Flatten()(h)
-    h = Dense(256, activation='relu')(h)
     if add_lstm:
+        # Inspired from https://machinelearningmastery.com/cnn-long-short-term-memory-networks/
+
+        # Adding a temporal input at the start (for the TimeDistributed wrapper)
+        input_shape = (1,) + input_shape
+        state = Input(shape=input_shape)
+        h = TimeDistributed(Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first'))(state)
+        h = TimeDistributed(Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first'))(h)
+        h = TimeDistributed(Flatten())(h)
+        h = TimeDistributed(Dense(256, activation='relu'))(h)
         h = LSTM(256)(h)
 
-    value = Dense(1, activation='linear', name='value')(h)
-    policy = Dense(output_shape, activation='softmax', name='policy')(h)
+        value = Dense(1, activation='linear', name='value')(h)
+        policy = Dense(output_shape, activation='softmax', name='policy')(h)
+
+    else:
+        state = Input(shape=input_shape)
+        h = Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first')(state)
+        h = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first')(h)
+        h = Flatten()(h)
+        h = Dense(256, activation='relu')(h)
+
+        value = Dense(1, activation='linear', name='value')(h)
+        policy = Dense(output_shape, activation='softmax', name='policy')(h)
 
     value_network = Model(inputs=state, outputs=value)
     policy_network = Model(inputs=state, outputs=policy)
@@ -208,13 +222,13 @@ def learn_proc(envs, mem_queue, weight_dict, add_lstm=False):
 
 
 class ActingAgent(object):
-    def __init__(self, action_space, screen=(84, 84), n_step=8, discount=0.99):
+    def __init__(self, action_space, screen=(84, 84), n_step=8, discount=0.99, add_lstm=False):
         self.screen = screen
         self.input_depth = 1
         self.past_range = 3
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
 
-        self.value_net, self.policy_net, self.load_net, adv = build_network(self.observation_shape, action_space.n)
+        self.value_net, self.policy_net, self.load_net, adv = build_network(self.observation_shape, action_space.n, add_lstm=add_lstm)
 
         self.value_net.compile(optimizer='rmsprop', loss='mse')
         self.policy_net.compile(optimizer='rmsprop', loss='categorical_crossentropy')
@@ -274,7 +288,7 @@ class ActingAgent(object):
 
 
 @trace_unhandled_exceptions
-def generate_experience_proc(env, mem_queue, weight_dict, no):
+def generate_experience_proc(env, mem_queue, weight_dict, no, add_lstm=False):
     import os
     pid = os.getpid()
     os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_act_' + str(no)
@@ -284,7 +298,7 @@ def generate_experience_proc(env, mem_queue, weight_dict, no):
     frames = 0
     batch_size = args.batch_size
     # -----
-    agent = ActingAgent(env.action_space, n_step=args.n_step)
+    agent = ActingAgent(env.action_space, n_step=args.n_step, add_lstm=add_lstm)
 
     if frames > 0:
         print(' %5d> Loaded weights from file' % (pid,))
@@ -357,7 +371,7 @@ def main():
     try:
         for i in range(args.processes):
             env = gym.make(args.game)
-            pool.apply_async(generate_experience_proc, (env, mem_queue, weight_dict, i))
+            pool.apply_async(generate_experience_proc, (env, mem_queue, weight_dict, i, args.add_lstm))
             envs.append(env)
 
         pool.apply_async(learn_proc, (envs, mem_queue, weight_dict, args.add_lstm))

@@ -101,9 +101,11 @@ def build_network(input_shape, output_shape):
     h = Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first')(state)
     h = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first')(h)
     h = Flatten()(h)
-    h = Dense(256, activation='relu')(h)
     if add_lstm:
+        h = TimeDistributed(Dense(256, activation='relu'))(h)
         h = LSTM(256)(h)
+    else:
+        h = Dense(256, activation='relu')(h)
 
     value = Dense(1, activation='linear')(h)
     policy = Dense(output_shape, activation='softmax')(h)
