@@ -31,6 +31,22 @@ parser.add_argument('--th_comp_fix', default=True,
 args = parser.parse_args()
 
 
+import sys
+import pdb
+
+class ForkedPdb(pdb.Pdb):
+    """A Pdb subclass that may be used
+    from a forked multiprocessing child
+
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
+
 # -----
 
 
@@ -295,10 +311,14 @@ def main():
 
     try:
         for i in range(args.processes):
-            pool.apply_async(generate_experience_proc,
+            p = pool.apply_async(generate_experience_proc,
                              args=(global_frame, mem_queue, weight_dict, i, eps[i % len(eps)]))
+            # Get an eventual exception
+            p.get()
 
-        pool.apply_async(learn_proc, args=(global_frame, mem_queue, weight_dict))
+        p = pool.apply_async(learn_proc, args=(global_frame, mem_queue, weight_dict))
+        # Get an eventual exception
+        p.get()
 
         pool.close()
         pool.join()

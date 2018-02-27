@@ -1,5 +1,5 @@
 ### Variation of Asynchronous RL in Keras (Theano backend) + OpenAI gym [1-step Q-learning, n-step Q-learning, A3C]
-This is a simple variation of [asynchronous reinforcement learning](http://arxiv.org/pdf/1602.01783v1.pdf) written in Python with Keras (Theano backend). Instead of many threads training at the same time there are many processes generating experience for a single agent to learn from. 
+This is a simple variation of [asynchronous reinforcement learning](http://arxiv.org/pdf/1602.01783v1.pdf) written in Python with Keras (Theano backend). Instead of many threads training at the same time there are many processes generating experience for a single agent to learn from.
 
 ### Explanation
 There are many processes (tested with 4, it should work better with more in case of Q-learning methods) which are creating experience and sending it to the shared queue. Queue is limited in length (tested with 256) to stop individual processes from excessively generating experience with old weights. Learning process draws from queue samples in batches and learns on them. In A3C network weights are swapped relatively fast to keep them updated.
@@ -15,6 +15,20 @@ There are many processes (tested with 4, it should work better with more in case
 * [Theano](http://deeplearning.net/software/theano/) ([Tensorflow](https://www.tensorflow.org/) would probably work too)
 * [OpenAI (atari-py)](https://gym.openai.com/)
 * `pip3 install scikit-image h5py scipy`
+
+### Usage
+
+#### Train
+
+```
+KERAS_BACKEND=theano python a3c/train.py
+```
+
+#### Play
+
+```
+KERAS_BACKEND=theano python a3c/play.py --model=a3c/sample-weights/model-Breakout-v0-91750000.h5
+```
 
 ### Sample game (A3C)
 ![](https://github.com/Grzego/async-rl/blob/master/a3c/resources/sample-game.gif?raw=true)
@@ -35,3 +49,27 @@ Because I'm newbie in Reinforcement Learning and Deep Learning, feedback is very
 * [Asynchronous Methods for Deep Reinforcement Learning](http://arxiv.org/pdf/1602.01783v1.pdf)
 * [Playing Atari with Deep Reinforcement Learning](http://arxiv.org/pdf/1312.5602v1.pdf)
 
+### Docker
+
+On an Ubuntu 16 AMI from AWS, install docker with:
+
+```
+sudo apt-get update
+sudo apt-get install apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+sudo apt-get update
+sudo apt-get install docker-ce
+
+sudo usermod -aG docker $USER
+```
+
+Disconnect from the bash then reconnect.
+
+Then run training with:
+
+```
+screen
+docker build . -t worker
+docker run -v /home/ubuntu/async-rl:/leto.ai/async-rl worker python a3c/train.py --game="SuperMarioBros-1-1-v1" --processes=16 --reward_scale=10
+```
