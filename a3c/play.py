@@ -98,36 +98,42 @@ class MarioMonitor(Monitor):
 
 def build_network(input_shape, output_shape):
     state = Input(shape=input_shape)
-    h = Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first')(state)
-    h = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first')(h)
-    h = Flatten()(h)
-    if add_lstm:
+    # -----
+    if lstm:
+        # Inspired from https://machinelearningmastery.com/cnn-long-short-term-memory-networks/
+
+        state = Input(shape=input_shape)
+        h = TimeDistributed(Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first'))(state)
+        h = TimeDistributed(Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first'))(h)
+        h = TimeDistributed(Flatten())(h)
         h = TimeDistributed(Dense(256, activation='relu'))(h)
         h = LSTM(256)(h)
+
     else:
+        state = Input(shape=input_shape)
+        h = Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first')(state)
+        h = Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first')(h)
+        h = Flatten()(h)
         h = Dense(256, activation='relu')(h)
 
-    value = Dense(1, activation='linear')(h)
-    policy = Dense(output_shape, activation='softmax')(h)
+    value = Dense(1, activation='linear', name='value')(h)
+    policy = Dense(output_shape, activation='softmax', name='policy')(h)
 
-    value_network = Model(input=state, output=value)
-    policy_network = Model(input=state, output=policy)
-
-    adventage = Input(shape=(1,))
+    advantage = Input(shape=(1,))
     train_network = Model(inputs=state, outputs=[value, policy])
 
-    return value_network, policy_network, train_network, adventage
+    return value_network, policy_network, train_network, advantage
 
 
 class ActingAgent(object):
-    def __init__(self, action_space, screen=(84, 84), add_lstm=False):
+    def __init__(self, action_space, screen=(84, 84), lstm=False):
         self.screen = screen
         self.input_depth = 1
         self.past_range = 3
         self.replay_size = 32
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
 
-        _, self.policy, self.load_net, _ = build_network(self.observation_shape, action_space.n, add_lstm)
+        _, self.policy, self.load_net, _ = build_network(self.observation_shape, action_space.n, lstm)
 
         self.load_net.compile(optimizer=RMSprop(clipnorm=1.), loss='mse')  # clipnorm=1.
 
@@ -157,7 +163,7 @@ parser.add_argument('--game', default='Breakout-v0', help='Name of openai gym en
 parser.add_argument('--evaldir', default=None, help='Directory to save evaluation', dest='evaldir')
 parser.add_argument('--model', help='File with weights for model', dest='model')
 parser.add_argument('--n-tests', type=int, default=20, help='Number of tests to run', dest='n_tests')
-parser.add_argument('--lstm', type=bool, default=False, help='Use a LSTM', dest='add_lstm')
+parser.add_argument('--lstm', type=bool, default=False, help='Use a LSTM', dest='lstm')
 
 
 def main():
@@ -172,7 +178,7 @@ def main():
         else:
             env = Monitor(env, args.evaldir, video_callable=lambda episode_id: True)
     # -----
-    agent = ActingAgent(env.action_space, args.add_lstm)
+    agent = ActingAgent(env.action_space, args.lstm)
 
     model_file = args.model
 

@@ -78,6 +78,9 @@ def build_network(input_shape, output_shape, lstm=False):
     advantage = Input(shape=(1,))
     train_network = Model(inputs=[state, advantage], outputs=[value, policy])
 
+    # from keras.utils import plot_model
+    # plot_model(train_network, to_file='train_network_lstm.png', show_shapes=True)
+
     return value_network, policy_network, train_network, advantage
 
 
