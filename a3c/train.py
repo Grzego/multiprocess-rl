@@ -108,11 +108,12 @@ class LearningAgent(object):
         # -----
         self.screen = screen
         self.input_depth = 1
+        self.time_depth = 1
         self.past_range = 3
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
 
         if lstm:
-            self.observation_shape = (time_depth,) + self.observation_shape
+            self.observation_shape = (self.time_depth,) + self.observation_shape
         self.batch_size = batch_size
 
         _, _, self.train_net, advantage = build_network(self.observation_shape, action_space.n, lstm=lstm)
@@ -231,7 +232,7 @@ class ActingAgent(object):
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
 
         if lstm:
-            self.observation_shape = (time_depth,) + self.observation_shape
+            self.observation_shape = (self.time_depth,) + self.observation_shape
 
         self.value_net, self.policy_net, self.load_net, adv = build_network(self.observation_shape, action_space.n, lstm=lstm)
 
@@ -285,16 +286,15 @@ class ActingAgent(object):
 
     def save_observation(self, observation, lstm):
         self.last_observations = self.observations[...]
-        self.observations = np.roll(self.observations, -self.input_depth, axis=0)
-        self.observations[-self.input_depth:, ...] = self.transform_screen(observation, lstm)
-        print(self.observations[0])
+        input_depth = self.time_depth if lstm else self.input_depth
+
+        self.observations = np.roll(self.observations, -input_depth, axis=0)
+        self.observations[-input_depth:, ...] = self.transform_screen(observation, lstm)
 
     def transform_screen(self, data, lstm):
         if lstm:
-            print('yes LSTM')
             return rgb2gray(imresize(data, self.screen))
         else:
-            print('no LSTM')
             return rgb2gray(imresize(data, self.screen))[None, ...]
 
 
