@@ -37,7 +37,7 @@ parser.add_argument('--queue_size', default=256, help='Size of queue holding age
 parser.add_argument('--n_step', default=5, help='Number of steps', dest='n_step', type=int)
 parser.add_argument('--reward_scale', default=1., dest='reward_scale', type=float)
 parser.add_argument('--beta', default=0.01, dest='beta', type=float)
-parser.add_argument('--lstm', type=bool, default=False, help='Use a LSTM', dest='add_lstm')
+parser.add_argument('--lstm', type=bool, default=False, help='Use a LSTM', dest='lstm')
 # -----
 args = parser.parse_args()
 
@@ -45,15 +45,13 @@ args = parser.parse_args()
 # -----
 
 
-def build_network(input_shape, output_shape, add_lstm=False):
+def build_network(input_shape, output_shape, lstm=False):
     from keras.models import Model
     from keras.layers import Input, Conv2D, Flatten, Dense, LSTM, TimeDistributed
     # -----
-    if add_lstm:
+    if lstm:
         # Inspired from https://machinelearningmastery.com/cnn-long-short-term-memory-networks/
 
-        # Adding a temporal input at the start (for the TimeDistributed wrapper)
-        input_shape = (1,) + input_shape
         state = Input(shape=input_shape)
         h = TimeDistributed(Conv2D(16, kernel_size=(8, 8), strides=(4, 4), activation='relu', data_format='channels_first'))(state)
         h = TimeDistributed(Conv2D(32, kernel_size=(4, 4), strides=(2, 2), activation='relu', data_format='channels_first'))(h)
@@ -105,16 +103,19 @@ def value_loss():
 # -----
 
 class LearningAgent(object):
-    def __init__(self, action_space, batch_size=32, screen=(84, 84), swap_freq=200, add_lstm=False):
+    def __init__(self, action_space, batch_size=32, screen=(84, 84), swap_freq=200, lstm=False):
         from keras.optimizers import RMSprop
         # -----
         self.screen = screen
         self.input_depth = 1
         self.past_range = 3
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
+
+        if lstm:
+            self.observation_shape = (time_depth,) + self.observation_shape
         self.batch_size = batch_size
 
-        _, _, self.train_net, advantage = build_network(self.observation_shape, action_space.n, add_lstm=add_lstm)
+        _, _, self.train_net, advantage = build_network(self.observation_shape, action_space.n, lstm=lstm)
 
         self.train_net.compile(optimizer=RMSprop(epsilon=0.1, rho=0.99),
                                loss=[value_loss(), policy_loss(advantage, args.beta)])
@@ -166,7 +167,7 @@ class LearningAgent(object):
 
 
 @trace_unhandled_exceptions
-def learn_proc(envs, mem_queue, weight_dict, add_lstm=False):
+def learn_proc(envs, mem_queue, weight_dict, lstm=False):
     import os
     pid = os.getpid()
     os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_learn'
@@ -180,7 +181,7 @@ def learn_proc(envs, mem_queue, weight_dict, add_lstm=False):
     steps = args.steps
     # -----
     env = gym.make(args.game)
-    agent = LearningAgent(env.action_space, batch_size=args.batch_size, swap_freq=args.swap_freq, add_lstm=add_lstm)
+    agent = LearningAgent(env.action_space, batch_size=args.batch_size, swap_freq=args.swap_freq, lstm=lstm)
     # -----
     if checkpoint > 0:
         print(' %5d> Loading weights from file' % (pid,))
@@ -222,13 +223,17 @@ def learn_proc(envs, mem_queue, weight_dict, add_lstm=False):
 
 
 class ActingAgent(object):
-    def __init__(self, action_space, screen=(84, 84), n_step=8, discount=0.99, add_lstm=False):
+    def __init__(self, action_space, screen=(84, 84), n_step=8, discount=0.99, lstm=False):
         self.screen = screen
         self.input_depth = 1
         self.past_range = 3
+        self.time_depth = 1
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
 
-        self.value_net, self.policy_net, self.load_net, adv = build_network(self.observation_shape, action_space.n, add_lstm=add_lstm)
+        if lstm:
+            self.observation_shape = (time_depth,) + self.observation_shape
+
+        self.value_net, self.policy_net, self.load_net, adv = build_network(self.observation_shape, action_space.n, lstm=lstm)
 
         self.value_net.compile(optimizer='rmsprop', loss='mse')
         self.policy_net.compile(optimizer='rmsprop', loss='categorical_crossentropy')
@@ -245,9 +250,9 @@ class ActingAgent(object):
         self.discount = discount
         self.counter = 0
 
-    def init_episode(self, observation):
+    def init_episode(self, observation, lstm):
         for _ in range(self.past_range):
-            self.save_observation(observation)
+            self.save_observation(observation, lstm)
 
     def reset(self):
         self.counter = 0
@@ -255,8 +260,8 @@ class ActingAgent(object):
         self.n_step_actions.clear()
         self.n_step_rewards.clear()
 
-    def sars_data(self, action, reward, observation, terminal, mem_queue):
-        self.save_observation(observation)
+    def sars_data(self, action, reward, observation, terminal, mem_queue, lstm):
+        self.save_observation(observation, lstm)
         reward /= args.reward_scale
         reward = np.clip(reward, -1., 1.)
         # -----
@@ -278,17 +283,23 @@ class ActingAgent(object):
         policy = self.policy_net.predict(self.observations[None, ...])[0]
         return np.random.choice(np.arange(self.action_space.n), p=policy)
 
-    def save_observation(self, observation):
+    def save_observation(self, observation, lstm):
         self.last_observations = self.observations[...]
         self.observations = np.roll(self.observations, -self.input_depth, axis=0)
-        self.observations[-self.input_depth:, ...] = self.transform_screen(observation)
+        self.observations[-self.input_depth:, ...] = self.transform_screen(observation, lstm)
+        print(self.observations[0])
 
-    def transform_screen(self, data):
-        return rgb2gray(imresize(data, self.screen))[None, ...]
+    def transform_screen(self, data, lstm):
+        if lstm:
+            print('yes LSTM')
+            return rgb2gray(imresize(data, self.screen))
+        else:
+            print('no LSTM')
+            return rgb2gray(imresize(data, self.screen))[None, ...]
 
 
 @trace_unhandled_exceptions
-def generate_experience_proc(env, mem_queue, weight_dict, no, add_lstm=False):
+def generate_experience_proc(env, mem_queue, weight_dict, no, lstm=False):
     import os
     pid = os.getpid()
     os.environ['THEANO_FLAGS'] = 'floatX=float32,device=cpu,compiledir=th_comp_act_' + str(no)
@@ -298,7 +309,7 @@ def generate_experience_proc(env, mem_queue, weight_dict, no, add_lstm=False):
     frames = 0
     batch_size = args.batch_size
     # -----
-    agent = ActingAgent(env.action_space, n_step=args.n_step, add_lstm=add_lstm)
+    agent = ActingAgent(env.action_space, n_step=args.n_step, lstm=lstm)
 
     if frames > 0:
         print(' %5d> Loaded weights from file' % (pid,))
@@ -320,7 +331,7 @@ def generate_experience_proc(env, mem_queue, weight_dict, no, add_lstm=False):
             episode_reward = 0
             op_last, op_count = 0, 0
             observation = env.reset()
-            agent.init_episode(observation)
+            agent.init_episode(observation, lstm)
 
             # -----
             while not done:
@@ -330,7 +341,7 @@ def generate_experience_proc(env, mem_queue, weight_dict, no, add_lstm=False):
                 episode_reward += reward
                 best_score = max(best_score, episode_reward)
                 # -----
-                agent.sars_data(action, reward, observation, done, mem_queue)
+                agent.sars_data(action, reward, observation, done, mem_queue, lstm)
                 # -----
                 op_count = 0 if op_last != action else op_count + 1
                 done = done or op_count >= 100
@@ -371,10 +382,10 @@ def main():
     try:
         for i in range(args.processes):
             env = gym.make(args.game)
-            pool.apply_async(generate_experience_proc, (env, mem_queue, weight_dict, i, args.add_lstm))
+            pool.apply_async(generate_experience_proc, (env, mem_queue, weight_dict, i, args.lstm))
             envs.append(env)
 
-        pool.apply_async(learn_proc, (envs, mem_queue, weight_dict, args.add_lstm))
+        pool.apply_async(learn_proc, (envs, mem_queue, weight_dict, args.lstm))
 
         pool.close()
         pool.join()
