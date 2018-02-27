@@ -232,8 +232,10 @@ class ActingAgent(object):
         self.input_depth = 1
         self.past_range = 3
         self.time_depth = 1
+
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
 
+        self.lstm = lstm
         if lstm:
             self.observation_shape = (self.time_depth,) + self.observation_shape
 
@@ -254,9 +256,9 @@ class ActingAgent(object):
         self.discount = discount
         self.counter = 0
 
-    def init_episode(self, observation, lstm):
+    def init_episode(self, observation):
         for _ in range(self.past_range):
-            self.save_observation(observation, lstm)
+            self.save_observation(observation)
 
     def reset(self):
         self.counter = 0
@@ -264,8 +266,8 @@ class ActingAgent(object):
         self.n_step_actions.clear()
         self.n_step_rewards.clear()
 
-    def sars_data(self, action, reward, observation, terminal, mem_queue, lstm):
-        self.save_observation(observation, lstm)
+    def sars_data(self, action, reward, observation, terminal, mem_queue):
+        self.save_observation(observation)
         reward /= args.reward_scale
         reward = np.clip(reward, -1., 1.)
         # -----
@@ -287,15 +289,15 @@ class ActingAgent(object):
         policy = self.policy_net.predict(self.observations[None, ...])[0]
         return np.random.choice(np.arange(self.action_space.n), p=policy)
 
-    def save_observation(self, observation, lstm):
+    def save_observation(self, observation):
         self.last_observations = self.observations[...]
-        input_depth = self.time_depth if lstm else self.input_depth
+        input_depth = self.time_depth if self.lstm else self.input_depth
 
         self.observations = np.roll(self.observations, -input_depth, axis=0)
-        self.observations[-input_depth:, ...] = self.transform_screen(observation, lstm)
+        self.observations[-input_depth:, ...] = self.transform_screen(observation)
 
-    def transform_screen(self, data, lstm):
-        if lstm:
+    def transform_screen(self, data):
+        if self.lstm:
             return rgb2gray(imresize(data, self.screen))
         else:
             return rgb2gray(imresize(data, self.screen))[None, ...]
@@ -334,7 +336,7 @@ def generate_experience_proc(env, mem_queue, weight_dict, no, lstm=False):
             episode_reward = 0
             op_last, op_count = 0, 0
             observation = env.reset()
-            agent.init_episode(observation, lstm)
+            agent.init_episode(observation)
 
             # -----
             while not done:
@@ -344,7 +346,7 @@ def generate_experience_proc(env, mem_queue, weight_dict, no, lstm=False):
                 episode_reward += reward
                 best_score = max(best_score, episode_reward)
                 # -----
-                agent.sars_data(action, reward, observation, done, mem_queue, lstm)
+                agent.sars_data(action, reward, observation, done, mem_queue)
                 # -----
                 op_count = 0 if op_last != action else op_count + 1
                 done = done or op_count >= 100

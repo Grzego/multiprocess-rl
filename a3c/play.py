@@ -96,7 +96,7 @@ class MarioMonitor(Monitor):
             self._set_mode(mode)
 
 
-def build_network(input_shape, output_shape):
+def build_network(input_shape, output_shape, lstm):
     state = Input(shape=input_shape)
     # -----
     if lstm:
@@ -118,6 +118,8 @@ def build_network(input_shape, output_shape):
 
     value = Dense(1, activation='linear', name='value')(h)
     policy = Dense(output_shape, activation='softmax', name='policy')(h)
+    value_network = Model(inputs=state, outputs=value)
+    policy_network = Model(inputs=state, outputs=policy)
 
     advantage = Input(shape=(1,))
     train_network = Model(inputs=state, outputs=[value, policy])
@@ -128,17 +130,22 @@ def build_network(input_shape, output_shape):
 class ActingAgent(object):
     def __init__(self, action_space, screen=(84, 84), lstm=False):
         self.screen = screen
+        self.time_depth = 1
         self.input_depth = 1
         self.past_range = 3
         self.replay_size = 32
+        self.lstm = lstm
+
         self.observation_shape = (self.input_depth * self.past_range,) + self.screen
+        if lstm:
+            self.observation_shape = (self.time_depth,) + self.observation_shape
 
         _, self.policy, self.load_net, _ = build_network(self.observation_shape, action_space.n, lstm)
 
         self.load_net.compile(optimizer=RMSprop(clipnorm=1.), loss='mse')  # clipnorm=1.
 
         self.action_space = action_space
-        self.observations = np.zeros((self.input_depth * self.past_range,) + screen)
+        self.observations = np.zeros(self.observation_shape)
 
     def init_episode(self, observation):
         for _ in range(self.past_range):
@@ -146,16 +153,24 @@ class ActingAgent(object):
 
     def choose_action(self, observation):
         self.save_observation(observation)
-        policy = self.policy.predict(self.observations[None, ...])[0]
+        if self.lstm:
+            policy = self.policy.predict(self.observations[None, ...])[0]
+        else:
+            policy = self.policy.predict(self.observations)[0]
         policy /= np.sum(policy)  # numpy, why?
         return np.random.choice(np.arange(self.action_space.n), p=policy)
 
     def save_observation(self, observation):
-        self.observations = np.roll(self.observations, -self.input_depth, axis=0)
-        self.observations[-self.input_depth:, ...] = self.transform_screen(observation)
+        input_depth = self.time_depth if self.lstm else self.input_depth
+
+        self.observations = np.roll(self.observations, -input_depth, axis=0)
+        self.observations[-input_depth:, ...] = self.transform_screen(observation)
 
     def transform_screen(self, data):
-        return rgb2gray(imresize(data, self.screen))[None, ...]
+        if self.lstm:
+            return rgb2gray(imresize(data, self.screen))
+        else:
+            return rgb2gray(imresize(data, self.screen))[None, ...]
 
 
 parser = argparse.ArgumentParser(description='Evaluation of model')
@@ -178,7 +193,7 @@ def main():
         else:
             env = Monitor(env, args.evaldir, video_callable=lambda episode_id: True)
     # -----
-    agent = ActingAgent(env.action_space, args.lstm)
+    agent = ActingAgent(env.action_space, lstm=args.lstm)
 
     model_file = args.model
 
